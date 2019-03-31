@@ -1,8 +1,8 @@
 var io = require('socket.io-client');
-var host = '192.168.1.7';
+var host = '192.168.1.4';
 
 //var socket = io.connect('http://3.86.163.195:80', {reconnect: true});
-var socket = io.connect('http://192.168.1.7:3000',{reconnect: true});
+var socket = io.connect('http://192.168.1.4:3000',{reconnect: true});
 const axios = require('axios');
 
 socket.on('connect', function () {
@@ -14,18 +14,27 @@ const Gpio = require('pigpio').Gpio;
 const rc522 = require("rc522");
 
 let temp_session = 0;
+var parking_1 = false;
+var parking_2 = false;
 
 console.log('Ready!!!');
 
 socket.on('park_vehicle',function(data){
+  console.log(data);
+
   temp_session = data.session_id;
+  parking_1 = data.parking_1;
+  parking_2 = data.parking_2;
+
 });
 
 rc522(function(rfidSerialNumber){
+	console.log(rfidSerialNumber);
 	socket.emit('rfid_scanned_request',rfidSerialNumber);
 	axios.get(`http://${host}:3000/newparking/${rfidSerialNumber}`)
 	  .then(response => {
-		console.log(response.data);
+		if(response.data.status == 1)
+		toggleGate();
 	}).catch(error => {
 		console.log(error);
 	});
@@ -64,13 +73,16 @@ const watchHCSR041 = () => {
       const diff = (endTick >> 0) - (startTick >> 0); // Unsigned 32 bit arithmetic
       const dist = Math.round(diff / 2 / MICROSECDONDS_PER_CM);
       if(dist < 14){
-          if(temp_session > 0){
+          if(!parking_1 && (temp_session!= 0)){
               let s_id = temp_session;
               temp_session = 0;
+	      parking_1 = true;
               updateParking(1,s_id);
           }
+	  socket.emit("parking_slot_1",false);
       } else {
-          console.log("Parking Slot I Available"); 
+          console.log("Parking Slot I Available");
+	 socket.emit("parking_slot_1",true);
       }
     }
   });
@@ -87,13 +99,16 @@ const watchHCSR042 = () => {
       const diff = (endTick >> 0) - (startTick >> 0); // Unsigned 32 bit arithmetic
       const dist = Math.round(diff / 2 / MICROSECDONDS_PER_CM);
       if(dist < 14){
-        if(temp_session > 0){
+        if(!parking_2 && (temp_session!=0)){
               let s_id = temp_session;
               temp_session = 0;
+	      parking_2 = true;
               updateParking(2,s_id);
           }
+	socket.emit("parking_slot_2",false);
       } else {
-        console.log("Parking Slot II Available");  
+        console.log("Parking Slot II Available");
+	socket.emit("parking_slot_2",true);      
       }
     }
   });
@@ -107,4 +122,15 @@ setInterval(()=> {
   trigger.trigger(10, 1); // Set trigger high for 10 microseconds
   trigger2.trigger(10, 1); 
 }, 1000); 
+
+
+const motor = new Gpio(4, {mode: Gpio.OUTPUT});
+motor.servoWrite(1000);
+
+function toggleGate(){
+	motor.servoWrite(2000);
+	setTimeout(()=>{
+		motor.servoWrite(1000);
+	},4000);
+}
 
