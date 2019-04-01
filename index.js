@@ -1,8 +1,8 @@
 var io = require('socket.io-client');
-var host = '192.168.1.4';
+var host = '192.168.43.117'; // Computer IP Address
 
 //var socket = io.connect('http://3.86.163.195:80', {reconnect: true});
-var socket = io.connect('http://192.168.1.4:3000',{reconnect: true});
+var socket = io.connect(`http://${host}:3000`,{reconnect: true}); 
 const axios = require('axios');
 
 socket.on('connect', function () {

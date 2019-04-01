@@ -3,6 +3,8 @@ var http = require('http').Server(app);
 var io = require('socket.io')(http);
 var port = process.env.PORT || 3000;
 
+
+
 var base_price = 1;
 
 var mysql      = require('mysql');
@@ -52,6 +54,16 @@ app.get('/newparking/:id', function(req, res){
                 "status": 1,
                 "message":`Thank You, Fare Amount: ${fare}$`
               });
+
+               connection.query(`SELECT * from slots ORDER BY id ASC`, function (err88,slots) {
+                   if (err88) throw err88;
+                   io.emit('park_vehicle', {
+                      session_id: 0,
+                      parking_1: slots[0]['session_id'] == null ? false : true,
+                      parking_2: slots[1]['session_id'] == null ? false : true
+                  });
+               });
+
               io.emit('rfid_scanned', `Thank You, Fare Amount: ${fare}$`);
 
             });
@@ -64,20 +76,33 @@ app.get('/newparking/:id', function(req, res){
           if (err) throw err;
           if(result.length > 0){
             if(result[0].Balance > 0){  
-              connection.query(`SELECT * FROM slots WHERE session_id IS NULL`, function (err2, slots) {
+              connection.query(`SELECT * FROM slots ORDER BY id ASC`, function (err2, slots) {
                 if (err2) throw err2;
-                if(slots.length > 0 ){                 
+                let is_empty = false;
+                slots.forEach(function(item) {
+                  if (item.session_id == null) {
+                    is_empty = true;
+                    return false
+                  } 
+                });
+
+                console.log(is_empty);
+
+                if(is_empty){                 
                   connection.query(`INSERT into parking_sessions(user_id,from_time) VALUES ('${user_id}',NOW())`, function (err3, sessions) {
                     if (err3) throw err3;                    
-                        res.send({
-                          "result": 1,
-                          "status": 1,
-                          "message":`Hi ${result[0].Name}`
-                        });
-                        io.emit('park_vehicle', {
-                          session_id:sessions.insertId
-                        });
+                      res.send({
+                        "result": 1,
+                        "status": 1,
+                        "message":`Hi ${result[0].Name}`
+                      });
+                      io.emit('park_vehicle', {
+                        session_id:sessions.insertId,
+                        parking_1: slots[0]['session_id'] == null ? false : true,
+                        parking_2: slots[1]['session_id'] == null ? false : true
+                      });
                   });  
+
                 } else {
                   res.send({
                     "result": 1,
@@ -106,10 +131,74 @@ app.get('/newparking/:id', function(req, res){
     });
 });
 
+app.get('/addbalance/:id/:amount',function(req,res){
+  const user_id = req.params.id;
+  const amount = req.params.amount;
+
+  connection.query(`UPDATE users SET Balance = Balance + ${amount} WHERE id = '${user_id}'`, function (error) {
+      if (error) throw error;
+      res.send({
+        result:1,
+        status:1,
+        message:"Updated Successfully!"
+      })
+    })
+  });
+
+app.get('/getusersessiondata/:id',function(req,res){
+  const rfid = req.params.id;
+  connection.query(`SELECT * FROM parking_sessions WHERE user_id = '${rfid}' ORDER BY from_time DESC`, function (err9,prev_sessions) {
+    if (err9) throw err9;
+
+    else
+    {
+      connection.query(`SELECT * FROM users WHERE id = '${rfid}' `, function (err10,userdata) {
+        if (err10) throw err10;
+    
+        else
+        {
+          
+          connection.query(`SELECT * FROM slots`, function (err11,slots) {
+            if (err10) throw err10;
+        
+            else
+            {
+              const details = {
+                name:userdata[0].Name,
+                balance:userdata[0].Balance,
+                slots: JSON.parse(JSON.stringify(slots)),
+                parking_sessions: JSON.parse(JSON.stringify(prev_sessions))
+              }
+              res.send(details);
+            }
+        
+          })
+        }
+    
+      })
+
+    }
+
+  })
+
+
+});
+  
+
+
 io.on('connection', function(socket){
   socket.on('rfid_scanned_request', function(msg){
     io.emit('rfid_scanned', msg);
   });
+
+  socket.on('parking_slot_1', function(msg){
+    io.emit('parking_slot_1', msg);
+  });
+
+  socket.on('parking_slot_2', function(msg){
+    io.emit('parking_slot_2', msg);
+  });
+
 });
 
 http.listen(port, function(){
